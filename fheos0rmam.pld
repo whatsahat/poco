@@ -1,0 +1,184 @@
+   List<string> Columns = new List<string>()
+    { "idUsers", "Username", "Password", "Role", "Status", "FullName", "PhoneNumber", "Email", "Login_attemts", "Last_Login", "IsFirstLogin"};
+    List<string> ColumnsName = new List<string>()
+    { "ID", "Логин", "Пароль", "Права доступа", "статус аккаунта", "ФИО", "Номер телефона", "Почта", "Попытки входа", "Последний вход", "Активированный аккаунт"  };
+
+    List<string> q = new List<string>();
+
+    DataTable originalTable = null;
+    public AdminPanel()
+    {
+        InitializeComponent();
+        LoadUsers();
+        originalTable = ((DataTable)UsersGrid.DataSource);
+    }
+    private void LoadUsers(string searchValue = "")
+    {
+        q.Clear();
+        for (int i = 0; i < Columns.Count; i++)
+            q.Add($"{Columns[i]} as '{ColumnsName[i]}'");
+        string query = $"Select {String.Join(", ", q)} from Users inner join employees on Users.idUsers = employees.Users_idUsers ";
+        if (searchValue != "")
+        {
+            query += $"where concat_ws(' ', {String.Join(", ", Columns)}) LIKE {searchValue}";
+        }
+        UsersGrid.DataSource = DatabaseHelper.ExecuteQuery(query);
+    }
+    private void DeleteData(int userId)
+    {
+        // Удаление из Users
+        string deleteUserQuery = "DELETE FROM Users WHERE idUsers = @idUsers";
+        MySqlParameter[] userParams = {
+            new MySqlParameter("@idUsers", userId)
+        };
+        DatabaseHelper.ExecuteNonQuery(deleteUserQuery, userParams);
+    }
+
+    private void UpdateData(DataRow row, int userId)
+    {
+        q.Clear();
+        foreach (string col in Columns)
+            q.Add($"{col} = @{col}");
+        string updateQuery = $"UPDATE Users, employees SET {String.Join(", ", q)} WHERE Users.idUsers = @idUsers and employees.Users_idUsers = @idUsers";
+
+        var parameters = new List<MySqlParameter>(){ };
+
+        for (int i = 0; i < Columns.Count; i++)
+            parameters.Add(new MySqlParameter("@" + Columns[i], row[$"{ColumnsName[i]}"]));
+
+        DatabaseHelper.ExecuteNonQuery(updateQuery, parameters.ToArray());
+    }
+
+    private void AddUserBut_Click(object sender, EventArgs e)
+    {
+        var newForm = new AddUserForm();
+        newForm.ShowDialog();
+        if (newForm.DialogResult == DialogResult.OK) LoadUsers();
+    }
+
+
+    private void SerachBut_Click(object sender, EventArgs e)
+    {
+        string query = $"'%{SearchBox.Text}%'".Replace(" ","");
+        if (IsSerachData.Checked)
+        {
+            query += $" and Last_Login BETWEEN '{startPeriod.Value.ToString("yyyy-MM-dd")}' AND '{endPeriod.Value.ToString("yyyy-MM-dd")}'";
+        }
+        LoadUsers(query);
+
+    }
+
+    private void EditBut_Click(object sender, EventArgs e)
+    {
+        Program.ToggleEditing(UsersGrid, true, EditBut, SaveBut, CancelBut, DelBut);
+    }
+
+    private void SaveBut_Click(object sender, EventArgs e)
+    {
+        try
+        {
+            // Получаем измененные строки
+            DataTable changes = ((DataTable)UsersGrid.DataSource).GetChanges();
+            if (changes == null || changes.Rows.Count == 0)
+            {
+                MessageBox.Show("Нет изменений для сохранения");
+                return;
+            }
+
+            foreach (DataRow row in changes.Rows)
+            {
+                if (row.RowState == DataRowState.Modified)
+                {
+
+                    int userId = Convert.ToInt32(row["ID"]);
+
+                    // Обновляем Users
+                    UpdateData(row, userId);
+                }
+                else if (row.RowState == DataRowState.Deleted)
+                {
+                    int userId = Convert.ToInt32(row["ID", DataRowVersion.Original]);
+
+                    // Обновляем Users
+                    DeleteData(userId);
+                }
+            }
+
+            // Принимаем изменения
+            ((DataTable)UsersGrid.DataSource).AcceptChanges();
+            MessageBox.Show("Изменения успешно сохранены");
+            LoadUsers();
+            Program.ToggleEditing(UsersGrid, false, EditBut, SaveBut, CancelBut, DelBut);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ошибка сохранения: {ex.Message}");
+        }
+    }
+
+    private void DelBut_Click(object sender, EventArgs e)
+    {
+        if (UsersGrid.SelectedRows.Count == 0 && UsersGrid.CurrentRow == null)
+        {
+            MessageBox.Show("Пожалуйста, выберите строку для удаления");
+            return;
+        }
+
+        DataGridViewRow selectedRow = UsersGrid.SelectedRows.Count > 0 ? UsersGrid.SelectedRows[0] : UsersGrid.CurrentRow;
+        DataRow row = ((DataRowView)selectedRow.DataBoundItem).Row;
+        int userId = Convert.ToInt32(row["ID"]);
+
+        if (MessageBox.Show("Удалить запись?",
+                           "Подтверждение удаления",
+                           MessageBoxButtons.YesNo) == DialogResult.Yes)
+        {
+            try
+            {
+                row.Delete();
+                UsersGrid.Refresh();
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при удалении: {ex.Message}");
+            }
+        }
+    }
+
+    private void UnblockBut_Click(object sender, EventArgs e)
+    {
+        if (UsersGrid.CurrentRow == null)
+        {
+            MessageBox.Show("Пожалуйста, выберите пользователя для разблокировки");
+            return;
+        }
+        int userId = Convert.ToInt32(UsersGrid.CurrentRow.Cells["ID"].Value);
+        if (MessageBox.Show("Разблокировать пользователя?", "Подтверждение", MessageBoxButtons.YesNo) == DialogResult.Yes)
+        {
+            try
+            {
+                DatabaseHelper.ExecuteNonQuery($"update users set Status = 'Active' where idUsers = {userId}");
+                MessageBox.Show("Пользователь разблокирован");
+                LoadUsers();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка: {ex.Message}");
+            }
+        }
+    }
+
+
+    private void IsSerachData_CheckedChanged(object sender, EventArgs e)
+    {
+        startPeriod.Enabled = IsSerachData.Checked;
+        endPeriod.Enabled = IsSerachData.Checked;
+    }
+
+    private void CancelBut_Click(object sender, EventArgs e)
+    {
+        LoadUsers();
+        Program.ToggleEditing(UsersGrid, false, EditBut, SaveBut, CancelBut, DelBut);
+        MessageBox.Show("Все изменения отменены");
+    }
+}

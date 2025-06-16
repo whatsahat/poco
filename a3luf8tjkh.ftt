@@ -1,0 +1,135 @@
+if (string.IsNullOrEmpty(LoginBox.Text) || string.IsNullOrEmpty(PassBox.Text))
+{
+    MessageBox.Show("Пожалуйста, заполните все поля");
+    return;
+}
+
+try
+{
+    DataTable dt = DatabaseHelper.ExecuteQuery(
+        "SELECT * FROM Users WHERE Username = @username", new MySqlParameter[] {
+        new MySqlParameter("@username", LoginBox.Text)});
+
+    if (dt.Rows.Count == 0)
+        throw new Exception("Пользователь не найден");
+
+    DataRow row = dt.Rows[0];
+    
+    int Id = Convert.ToInt32(row["idUsers"]);
+    string Username = row["Username"].ToString();
+    string Password = row["Password"].ToString();
+    string Role = row["Role"].ToString();
+    string Status = row["Status"].ToString();
+    int LoginAttempts = Convert.ToInt32(row["Login_attemts"]);
+    DateTime? LastLogin = row["Last_Login"] as DateTime?;
+    bool IsFirstLogin = Convert.ToBoolean(row["IsFirstLogin"]);
+
+    
+
+    // Проверка блокировки аккаунта
+    if (Status == "Blocked")
+        throw new Exception("Аккаунт заблокирован");
+
+    // Проверка количества попыток входа
+    if (LoginAttempts >= 3)
+    {
+        DatabaseHelper.ExecuteNonQuery("update users set Login_attemts = 3 where idUsers = @id", new MySqlParameter[] {
+            new MySqlParameter ( "@id", Id ) 
+        }
+        );
+        throw new Exception("Превышено количество попыток. Аккаунт заблокирован");
+    }
+
+    // Проверка пароля
+    if (Password != PassBox.Text)
+    {
+        DatabaseHelper.ExecuteNonQuery(
+            $"update users set Login_attemts = {LoginAttempts + 1} where idUsers = @id",
+            new MySqlParameter[]
+            {
+                new MySqlParameter ("@id", Id)
+            }
+            );
+        int remainingAttempts = 2 - LoginAttempts;
+        throw new Exception($"Неверный пароль. Осталось попыток: {remainingAttempts}");
+    }
+
+    // Проверка давности последнего входа (кроме первого входа)
+    if (!IsFirstLogin && LastLogin.HasValue)
+    {
+        TimeSpan inactivePeriod = DateTime.Now - LastLogin.Value;
+        if (inactivePeriod.TotalDays > 30)
+        {
+            DatabaseHelper.ExecuteNonQuery(
+                "update Users set Status = Blocked where idUsers = @id",
+                new MySqlParameter[]
+                {
+                    new MySqlParameter ("@id", Id)
+                }
+                );
+            throw new Exception("Аккаунт заблокирован из-за неактивности (>30 дней)");
+        }
+    }
+
+    if (IsFirstLogin)
+    {
+        var changePass = new ChagePassForm(Id);
+        changePass.ShowDialog();
+    }
+
+    // Обновление данных при успешной авторизации
+    DatabaseHelper.ExecuteNonQuery(
+        "update Users set Login_attemts = 0, Last_Login = CURDATE() where idUsers = @id",
+        new MySqlParameter[] {
+            new MySqlParameter ("@id", Id)
+            }
+        );
+
+    MessageBox.Show("Вы успешно авторизовались");
+
+    var newForm = new MainMenuForm(Role);
+    this.Hide();
+    newForm.ShowDialog();
+
+}
+catch (Exception ex)
+{
+    MessageBox.Show($"Ошибка: {ex.Message}");
+}
+
+
+static private int ID;
+public ChagePassForm(int id)
+{
+    InitializeComponent();
+    ID = id;
+
+}
+private void ChangePassBut_Click(object sender, EventArgs e)
+{
+    if (string.IsNullOrEmpty(NewPassBox.Text) ||
+        string.IsNullOrEmpty(SubmitPassBox.Text))
+    {
+        MessageBox.Show("Все поля обязательны для заполнения");
+        return;
+    }
+    if (NewPassBox.Text != SubmitPassBox.Text)
+    {
+        MessageBox.Show("Новый пароль и подтверждение не совпадают");
+        return;
+    }
+    try 
+    { 
+        DatabaseHelper.ExecuteNonQuery(
+            $"update Users set Password = @pass, IsFirstLogin = 0 where idUsers = {ID}",
+            new MySqlParameter[]{
+                new MySqlParameter ("@pass", NewPassBox.Text) }
+            );
+        MessageBox.Show("Пароль изменён. \n Вход в аккаунт", "Уведомление");
+        this.Close();
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show($"Произошла ошибка: \n {ex.Message}");
+    }
+}

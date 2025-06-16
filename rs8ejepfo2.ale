@@ -1,0 +1,245 @@
+public ReportForm()
+{
+    InitializeComponent();
+    startPeriod.Value = DateTime.Today.AddMonths(-1);
+    endPeriod.Value = DateTime.Today;
+    TypeBox.Items.AddRange(new object[] {"Выберите тип отчета", "Регистрации ТС", "Угоны ТС", "ДТП"});
+    TypeBox.SelectedIndex = 0;
+}
+
+private void GenerateBut_Click(object sender, EventArgs e)
+{
+    DateTime startDate = startPeriod.Value.Date;
+    DateTime endDate = endPeriod.Value.Date.AddDays(1).AddSeconds(-1);
+
+    if (startDate > endDate)
+    {
+        MessageBox.Show("Дата начала не может быть больше даты окончания");
+        return;
+    }
+
+    switch (TypeBox.SelectedItem.ToString())
+    {
+        case "Регистрации ТС":
+            GenerateVehicleRegistrationsReport(startDate, endDate);
+            break;
+        case "Угоны ТС":
+            GenerateVehicleTheftsReport(startDate, endDate);
+            break;
+        case "ДТП":
+            GenerateAccidentsReport(startDate, endDate);
+            break;
+        default:
+            MessageBox.Show("Выберите корректный тип отчета");
+            break;
+    }
+
+}
+private void GenerateVehicleRegistrationsReport(DateTime startDate, DateTime endDate)
+{
+    string query = @"
+        SELECT 
+            COUNT(*) AS 'Количество регистраций',
+            DATE(registration_date) AS 'Дата'
+        FROM vehicle_registrations
+        WHERE registration_date BETWEEN @startDate AND @endDate
+        GROUP BY DATE(registration_date)
+        ORDER BY DATE(registration_date)";
+
+    GenerateReport(query, startDate, endDate, "Отчет по регистрациям ТС");
+}
+
+private void GenerateVehicleTheftsReport(DateTime startDate, DateTime endDate)
+{
+    string query = @"
+        SELECT 
+            COUNT(*) AS 'Количество угонов',
+            DATE(theft_date) AS 'Дата'
+        FROM vehicle_thefts
+        WHERE theft_date BETWEEN @startDate AND @endDate
+        GROUP BY DATE(theft_date)
+        ORDER BY DATE(theft_date)";
+
+    GenerateReport(query, startDate, endDate, "Отчет по угонам ТС");
+}
+
+private void GenerateAccidentsReport(DateTime startDate, DateTime endDate)
+{
+    string query = @"
+        SELECT 
+            COUNT(*) AS 'Количество ДТП',
+            DATE(accident_date) AS 'Дата',
+            accident_type AS 'Тип ДТП',
+            severity AS 'Тяжесть'
+        FROM accidents
+        WHERE accident_date BETWEEN @startDate AND @endDate
+        GROUP BY DATE(accident_date), accident_type, severity
+        ORDER BY DATE(accident_date)";
+
+    GenerateReport(query, startDate, endDate, "Отчет по ДТП");
+}
+
+private void GenerateReport(string query, DateTime startDate, DateTime endDate, string reportTitle)
+{
+    try
+    {
+        MySqlParameter[] parameters = {
+            new MySqlParameter("@startDate", startDate),
+            new MySqlParameter("@endDate", endDate)
+        };
+
+        DataTable reportData = DatabaseHelper.ExecuteQuery(query, parameters);
+
+        ReportGrid.DataSource = reportData;
+        NameLbl.Text = $"Отчет по {reportTitle} \n ({startDate:dd.MM.yyyy} - {endDate:dd.MM.yyyy})";
+
+        // Добавляем итоговую строку
+        if (reportData.Rows.Count > 0)
+        {
+            int total = 0;
+            foreach (DataRow row in reportData.Rows)
+            {
+                total += Convert.ToInt32(row[0]);
+            }
+
+            TotalLbl.Text = $"Всего: {total}";
+        }
+        else
+        {
+            TotalLbl.Text = "Нет данных за выбранный период";
+        }
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show($"Ошибка генерации отчета: {ex.Message}");
+    }
+}
+
+private void ExportBut_Click(object sender, EventArgs e)
+{
+    if (IsDataGridViewEmpty(ReportGrid))
+    {
+        MessageBox.Show("Нет данных для экспорта!", "Пустой отчет",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return;
+    }
+    using (SaveFileDialog saveDialog = new SaveFileDialog())
+    {
+        saveDialog.Filter = "Excel файлы|*.xlsx";
+        saveDialog.Title = "Сохранить отчет";
+        saveDialog.FileName = "Отчет_" + DateTime.Now.ToString("yyyyMMdd");
+
+        if (saveDialog.ShowDialog() == DialogResult.OK)
+        {
+            ExportToExcel(ReportGrid, saveDialog.FileName);
+        }
+    }
+}
+public static void ExportToExcel(DataGridView dataGridView, string filePath)
+{
+    
+    try
+    {
+        // 1. Создаем новый Excel-файл
+        using (SpreadsheetDocument document = SpreadsheetDocument.Create(filePath, SpreadsheetDocumentType.Workbook))
+        {
+            // 2. Добавляем основную структуру документа
+            WorkbookPart workbookPart = document.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+
+            // 3. Создаем лист для данных
+            WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(new SheetData());
+
+            // 4. Добавляем лист в книгу
+            Sheets sheets = workbookPart.Workbook.AppendChild(new Sheets());
+            Sheet sheet = new Sheet()
+            {
+                Id = workbookPart.GetIdOfPart(worksheetPart),
+                SheetId = 1,
+                Name = "Отчет"
+            };
+            sheets.Append(sheet);
+
+            // 5. Получаем область для данных
+            SheetData sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+
+            // 6. Добавляем заголовки столбцов
+            Row headerRow = new Row();
+            foreach (DataGridViewColumn column in dataGridView.Columns)
+            {
+                // Пропускаем невидимые столбцы
+                if (!column.Visible) continue;
+
+                Cell cell = new Cell()
+                {
+                    DataType = CellValues.String,
+                    CellValue = new CellValue(column.HeaderText)
+                };
+                headerRow.Append(cell);
+            }
+            sheetData.Append(headerRow);
+
+            // 7. Добавляем данные из таблицы
+            foreach (DataGridViewRow dgRow in dataGridView.Rows)
+            {
+                // Пропускаем пустые строки
+                if (dgRow.IsNewRow) continue;
+
+                Row row = new Row();
+
+                foreach (DataGridViewCell dgCell in dgRow.Cells)
+                {
+                    // Пропускаем невидимые столбцы
+                    if (!dgCell.OwningColumn.Visible) continue;
+
+                    // Форматируем значение ячейки
+                    string cellValue = dgCell.Value?.ToString() ?? "";
+
+                    Cell cell = new Cell()
+                    {
+                        DataType = CellValues.String,
+                        CellValue = new CellValue(cellValue)
+                    };
+                    row.Append(cell);
+                }
+                sheetData.Append(row);
+            }
+        }
+
+        MessageBox.Show($"Данные экспортированы в:\n{filePath}", "Готово",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show($"Ошибка экспорта: {ex.Message}", "Ошибка",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+}
+
+private static bool IsDataGridViewEmpty(DataGridView dataGridView)
+{
+    // 1. Проверяем есть ли видимые столбцы
+    bool hasVisibleColumns = false;
+    foreach (DataGridViewColumn column in dataGridView.Columns)
+    {
+        if (column.Visible)
+        {
+            hasVisibleColumns = true;
+            break;
+        }
+    }
+
+    // Если нет видимых столбцов - данных нет
+    if (!hasVisibleColumns) return true;
+
+    // 2. Проверяем наличие строк с данными
+    foreach (DataGridViewRow row in dataGridView.Rows)
+    {
+        // Игнорируем пустую строку для добавления новых данных
+        if (!row.IsNewRow) return false;
+    }
+
+    // 3. Не найдено ни одной строки с данными
+    return true;
+}

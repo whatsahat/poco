@@ -1,0 +1,42 @@
+public MainMenuForm(string role)
+{
+    InitializeComponent();
+    //Role = role; 
+    AdminPanelBut.Visible = (role == "Admin");
+    ReportBut.Visible = (role == "Admin");
+}
+
+private void AdminPanelBut_Click(object sender, EventArgs e)
+{
+    var newForm = new AdminPanel();
+    newForm.ShowDialog();
+}
+
+private void MainMenuForm_FormClosing(object sender, FormClosingEventArgs e)
+{
+    if (MessageBox.Show("Выйти из программы?", " ", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.No)
+    {
+        e.Cancel = true;
+    }
+    else
+    {
+        Application.ExitThread();
+    }
+}
+
+private void ReportBut_Click(object sender, EventArgs e)
+{
+    var newForm = new ReportForm();
+    newForm.ShowDialog();
+}
+
+private void StatisticBut_Click(object sender, EventArgs e)
+{
+    var newForm = new Statistic();
+    newForm.ShowDialog();
+}
+
+private void SerachBut_Click(object sender, EventArgs e)
+{
+
+}

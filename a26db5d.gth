@@ -1,0 +1,61 @@
+public AddUserForm()
+{
+    InitializeComponent();
+    RoleBox.Items.AddRange(new object[] { 
+        "Выберите уровень доступа","Администратор", "Инспектор по регистрации ТС", "Инспектор по ДТП", "Инспектор по угону" }
+    );
+    RoleBox.SelectedIndex = 0;
+}
+
+private void AddBut_Click(object sender, EventArgs e)
+{
+    var textBoxes = new List<TextBox>()
+    {
+        LoginBox, PassBox, FullnameBox, EmailBox, PhonenumBox
+    };
+    try
+    {
+        if (textBoxes.All(boxes => string.IsNullOrEmpty(boxes.Text)))
+            throw new Exception("Заполните все поля");
+
+        string Role = "";
+        switch (RoleBox.SelectedItem.ToString())
+        {
+            case "Администратор":
+                Role = "Admin";
+                break;
+            case "Инспектор по регистрации ТС":
+                Role = "RegInspector";
+                break;
+            case "Инспектор по ДТП":
+                Role = "AccidentInspector";
+                break;
+            case "Инспектор по угону":
+                Role = "TheftInspector";
+                break;
+            default:
+                throw new Exception("Выберите корректное значение");
+        };
+
+        DatabaseHelper.ExecuteNonQuery(
+            $"insert into Users (Username, Password, Role) values ('{LoginBox.Text}', '{PassBox.Text}', '{Role}') ");
+
+        int ID = Convert.ToInt32(DatabaseHelper.ExecuteScalar(
+            "select idUsers from Users where Username = @username",
+            new MySqlParameter[] { new MySqlParameter("@username", LoginBox.Text) }));
+
+        DatabaseHelper.ExecuteNonQuery(
+            $"insert into employees (Users_idUsers, FullName, PhoneNumber, Email) values " +
+            $"({ID}, '{FullnameBox.Text}', '{PhonenumBox.Text}', '{EmailBox.Text}')");
+        
+        this.DialogResult = DialogResult.OK;
+        
+        MessageBox.Show("Данные добавлены");
+
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show($"Ошибка: \n {ex.Message}", "Ошибка");
+        return;
+    };
+}

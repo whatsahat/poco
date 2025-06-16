@@ -1,0 +1,115 @@
+internal static class Program
+{
+    static private string conString = "server=localhost;database=trafficpoliceis;uid=root;pwd=1111;";
+    static public MySqlConnection connection = new MySqlConnection(conString);
+    /// <summary>
+    /// Главная точка входа для приложения.
+    /// </summary>
+    [STAThread]             
+
+    static void Main()
+    {
+        try
+        {
+            connection.Open();
+            //MessageBox.Show("Соединение установлено.", "Проверка");
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new AuthForm());
+
+        }
+        catch (Exception ex) {
+
+            MessageBox.Show("Программа не будет работать, Ошибка соединения c БД: \n" + ex.Message, "Ошибка");
+            return;
+
+        }
+        
+    }
+
+    public static void ToggleEditing(DataGridView targetGrid, bool enable, Button editButton, Button saveButton, Button cancelButton, Button deleteButton)
+    {
+        bool isEditing = enable;
+        targetGrid.ReadOnly = !enable;
+        targetGrid.AllowUserToDeleteRows = enable;
+
+        editButton.Enabled = !enable;
+        saveButton.Enabled = enable;
+        cancelButton.Enabled = enable;
+        deleteButton.Enabled = enable;
+    }
+
+    
+
+}
+
+public static class DatabaseHelper
+{
+    public static DataTable ExecuteQuery(string query, MySqlParameter[] parameters = null)
+    {
+        DataTable dataTable = new DataTable();
+
+        MySqlCommand command = new MySqlCommand(query, Program.connection);
+        if (parameters != null)
+        {
+            command.Parameters.AddRange(parameters);
+        }
+
+        try
+        {
+            using (MySqlDataAdapter adapter = new MySqlDataAdapter(command))
+            {
+                adapter.Fill(dataTable);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new Exception("Ошибка выполнения запроса: " + ex.Message);
+        }
+
+        return dataTable;
+    }
+
+    public static int ExecuteNonQuery(string query, MySqlParameter[] parameters = null)
+    {
+        using (MySqlCommand command = new MySqlCommand(query, Program.connection))
+        {
+            if (parameters != null)
+            {
+                command.Parameters.AddRange(parameters);
+            }
+
+            try
+            {
+                return command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Ошибка выполнения команды: " + ex.Message);
+            }
+        }
+    }
+
+    public static object ExecuteScalar(string query, MySqlParameter[] parameters = null)
+    {
+        using (MySqlCommand command = new MySqlCommand(query, Program.connection))
+        {
+            if (parameters != null)
+            {
+                command.Parameters.AddRange(parameters);
+            }
+
+            try
+            {
+                return command.ExecuteScalar();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Ошибка выполнения скалярного запроса: " + ex.Message);
+            }
+        }
+    }
+
+
+}
+
